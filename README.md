@@ -27,9 +27,9 @@ the Quick Settings panel.
    ```
 
 3. Restart GNOME Shell:
-   - **X11:** press `Alt+F2`, type `r`, press Enter.
    - **Wayland:** log out and log back in.
-
+   - **X11:** press `Alt+F2`, type `r`, press Enter.
+   
 4. Enable the extension:
 
    ```bash
