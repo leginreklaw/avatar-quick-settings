@@ -1,0 +1,8 @@
+{
+  "name": "Avatar Quick Settings",
+  "description": "Add user avatar to quick settings menu",
+  "uuid": "avatar-quick-settings@github.leginreklaw",
+  "shell-version": [
+    "50"
+  ]
+}
