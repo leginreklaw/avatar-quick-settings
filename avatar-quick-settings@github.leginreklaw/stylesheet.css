@@ -1,16 +1,15 @@
 /* Add your custom extension styling here */
-  
-  
-  .quick-toggle-menu .user-icon {
-icon-size: 2.75em;
+
+.quick-settings .user-icon {
+  icon-size: 5em;
 }
 
-.quick-toggle-menu .user-widget {
-  spacing: 12px;
-  padding-bottom: 12px;  
+.quick-settings .user-widget {
+  spacing: 36px;
+  padding-bottom: 12px;
 }
 
-.quick-toggle-menu .user-widget-label {
-font-size: large;
-font-weight: bold;
-  }
+.quick-settings .user-widget-label {
+  font-size: x-large;
+  font-weight: normal;
+}
