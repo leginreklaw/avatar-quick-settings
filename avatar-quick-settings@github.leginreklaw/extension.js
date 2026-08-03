@@ -15,53 +15,56 @@
  *
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
-import GLib from 'gi://GLib';
-import AccountsService from 'gi://AccountsService';
+import * as GLib from 'gi://GLib';
+import * as AccountsService from 'gi://AccountsService';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
-import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
 import * as UserWidget from 'resource:///org/gnome/shell/ui/userWidget.js';
+import { Extension } from 'resource:///org/gnome/shell/extensions/extension.js';
 
 export default class QuickSettingsAvatarExtension extends Extension {
-    // Attempts the modification. Returns true on success, false if the
-    // shell isn't ready yet (so the caller can retry). Any unexpected
-    // failure (e.g. shell internals changed in a GNOME update) is caught
-    // and logged rather than left to crash or spam uncaught exceptions.
-    //
-    // Inserts the avatar into the top-level quick settings menu box, above
-    // the grid of toggles, so it's visible as soon as the panel is opened
-    // (rather than only inside the power/shutdown submenu).
+    _createAvatarWidget() {
+        const userManager = AccountsService.UserManager.get_default();
+        const user = userManager.get_user(GLib.get_user_name());
+
+        this._avatar = new UserWidget.UserWidget(user);
+
+        const quickSettings = Main.panel.statusArea.quickSettings;
+        if (!quickSettings?.menu?.box)
+            return false;
+
+        quickSettings.menu.box.insert_child_at_index(this._avatar, 0);
+
+        for (const child of this._avatar.get_children()) {
+            if (child.constructor.name !== 'Avatar')
+                child.add_style_class_name('user-widget-label');
+        }
+
+        return true;
+    }
+
+    _setupUser() {
+        const userManager = AccountsService.UserManager.get_default();
+
+        // If AccountsService hasn't finished loading user data over DBus, wait for it
+        if (!userManager.is_loaded) {
+            this._userLoadedId = userManager.connect('notify::is-loaded', () => {
+                if (this._userLoadedId) {
+                    userManager.disconnect(this._userLoadedId);
+                    this._userLoadedId = null;
+                }
+                this._modifySystemItem();
+            });
+            return false;
+        }
+
+        return this._createAvatarWidget();
+    }
+
     _modifySystemItem() {
         try {
-            const quickSettings = Main.panel.statusArea.quickSettings;
-            if (!quickSettings || !quickSettings.menu || !quickSettings.menu.box)
-                return false;
-
-            const userManager = AccountsService.UserManager.get_default();
-            const user = userManager.get_user(GLib.get_user_name());
-
-            this._avatar = new UserWidget.UserWidget(user);
-            quickSettings.menu.box.insert_child_at_index(this._avatar, 0);
-
-            // This GNOME version's UserWidget doesn't put a style class on
-            // its label (unlike the icon, which gets 'user-icon user-avatar'),
-            // so .user-widget-label in stylesheet.css has nothing to match.
-            // Add it manually by finding the St.Label-ish child that isn't
-            // the avatar icon.
-            for (const child of this._avatar.get_children()) {
-                if (child.constructor.name !== 'Avatar')
-                    child.add_style_class_name('user-widget-label');
-            }
-
-            return true;
+            return this._setupUser();
         } catch (e) {
-            console.error(
-                `${this.metadata.name}: failed to add avatar to the ` +
-                `quick settings menu. This likely means GNOME Shell's ` +
-                `internal quick settings structure has changed and the ` +
-                `extension needs to be updated. Original error: ${e}`
-            );
-            // Don't keep retrying on idle_add if the failure is structural
-            // rather than "shell not ready yet".
+            console.error(`${this.metadata.name}: Error setting up avatar: ${e}`);
             this._modificationFailed = true;
             return false;
         }
@@ -69,16 +72,10 @@ export default class QuickSettingsAvatarExtension extends Extension {
 
     _queueModifySystemItem() {
         this._idleId = GLib.idle_add(GLib.PRIORITY_DEFAULT, () => {
-            if (this._modifySystemItem()) {
+            if (this._modifySystemItem() || this._modificationFailed) {
                 this._idleId = null;
                 return GLib.SOURCE_REMOVE;
             }
-
-            if (this._modificationFailed) {
-                this._idleId = null;
-                return GLib.SOURCE_REMOVE;
-            }
-
             return GLib.SOURCE_CONTINUE;
         });
     }
@@ -86,6 +83,7 @@ export default class QuickSettingsAvatarExtension extends Extension {
     enable() {
         this._avatar = null;
         this._idleId = null;
+        this._userLoadedId = null;
         this._modificationFailed = false;
 
         if (!this._modifySystemItem())
@@ -93,12 +91,20 @@ export default class QuickSettingsAvatarExtension extends Extension {
     }
 
     disable() {
-        // Cancel any pending retry so it can't fire after we've disabled.
+        // 1. Remove main loop idle sources using GLib.Source.remove
         if (this._idleId) {
-            GLib.source_remove(this._idleId);
+            GLib.Source.remove(this._idleId);
             this._idleId = null;
         }
 
+        // 2. Disconnect any pending DBus signal handlers
+        if (this._userLoadedId) {
+            const userManager = AccountsService.UserManager.get_default();
+            userManager.disconnect(this._userLoadedId);
+            this._userLoadedId = null;
+        }
+
+        // 3. Destroy created UI widgets
         if (this._avatar) {
             this._avatar.destroy();
             this._avatar = null;
