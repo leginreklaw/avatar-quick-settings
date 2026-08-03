@@ -22,48 +22,43 @@ import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
 import * as UserWidget from 'resource:///org/gnome/shell/ui/userWidget.js';
 
 export default class QuickSettingsAvatarExtension extends Extension {
-    // Find the ShutdownItem inside the system quick settings item.
-    // Kept as an instance method (not module-level code) so it only
-    // ever runs while the extension is actually enabled.
-    _findShutdownItem(children) {
-        for (const child of children) {
-            if (child.constructor.name === 'ShutdownItem')
-                return child;
-        }
-        return null;
-    }
-
     // Attempts the modification. Returns true on success, false if the
     // shell isn't ready yet (so the caller can retry). Any unexpected
     // failure (e.g. shell internals changed in a GNOME update) is caught
     // and logged rather than left to crash or spam uncaught exceptions.
+    //
+    // Inserts the avatar into the top-level quick settings menu box, above
+    // the grid of toggles, so it's visible as soon as the panel is opened
+    // (rather than only inside the power/shutdown submenu).
     _modifySystemItem() {
         try {
-            const system = Main.panel.statusArea.quickSettings._system;
-            if (!system)
+            const quickSettings = Main.panel.statusArea.quickSettings;
+            if (!quickSettings || !quickSettings.menu || !quickSettings.menu.box)
                 return false;
-
-            const children = system._systemItem.child.get_children();
-            const shutdownItem = this._findShutdownItem(children);
-            if (!shutdownItem)
-                return false;
-
-            this._shutdownItem = shutdownItem;
-            this._shutdownItem.menu._header.hide();
 
             const userManager = AccountsService.UserManager.get_default();
             const user = userManager.get_user(GLib.get_user_name());
 
             this._avatar = new UserWidget.UserWidget(user);
-            this._shutdownItem.menu.box.insert_child_at_index(this._avatar, 1);
+            quickSettings.menu.box.insert_child_at_index(this._avatar, 0);
+
+            // This GNOME version's UserWidget doesn't put a style class on
+            // its label (unlike the icon, which gets 'user-icon user-avatar'),
+            // so .user-widget-label in stylesheet.css has nothing to match.
+            // Add it manually by finding the St.Label-ish child that isn't
+            // the avatar icon.
+            for (const child of this._avatar.get_children()) {
+                if (child.constructor.name !== 'Avatar')
+                    child.add_style_class_name('user-widget-label');
+            }
 
             return true;
         } catch (e) {
             console.error(
                 `${this.metadata.name}: failed to add avatar to the ` +
-                `power menu. This likely means GNOME Shell's internal ` +
-                `quick settings structure has changed and the extension ` +
-                `needs to be updated. Original error: ${e}`
+                `quick settings menu. This likely means GNOME Shell's ` +
+                `internal quick settings structure has changed and the ` +
+                `extension needs to be updated. Original error: ${e}`
             );
             // Don't keep retrying on idle_add if the failure is structural
             // rather than "shell not ready yet".
@@ -90,7 +85,6 @@ export default class QuickSettingsAvatarExtension extends Extension {
 
     enable() {
         this._avatar = null;
-        this._shutdownItem = null;
         this._idleId = null;
         this._modificationFailed = false;
 
@@ -108,11 +102,6 @@ export default class QuickSettingsAvatarExtension extends Extension {
         if (this._avatar) {
             this._avatar.destroy();
             this._avatar = null;
-        }
-
-        if (this._shutdownItem) {
-            this._shutdownItem.menu._header.show();
-            this._shutdownItem = null;
         }
     }
 }
