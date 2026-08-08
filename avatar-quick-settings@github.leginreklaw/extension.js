@@ -15,99 +15,98 @@
  *
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
-import * as GLib from 'gi://GLib';
-import * as AccountsService from 'gi://AccountsService';
+import GLib from 'gi://GLib';
+import GObject from 'gi://GObject';
+import AccountsService from 'gi://AccountsService';
+
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
+import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
 import * as UserWidget from 'resource:///org/gnome/shell/ui/userWidget.js';
-import { Extension } from 'resource:///org/gnome/shell/extensions/extension.js';
 
 export default class QuickSettingsAvatarExtension extends Extension {
-    _createAvatarWidget() {
-        const userManager = AccountsService.UserManager.get_default();
-        const user = userManager.get_user(GLib.get_user_name());
-
-        this._avatar = new UserWidget.UserWidget(user);
-
-        const quickSettings = Main.panel.statusArea.quickSettings;
-        if (!quickSettings?.menu?.box)
-            return false;
-
-        quickSettings.menu.box.insert_child_at_index(this._avatar, 0);
-
-        for (const child of this._avatar.get_children()) {
-            if (child.constructor.name !== 'Avatar')
-                child.add_style_class_name('user-widget-label');
-        }
-
-        return true;
-    }
-
-    _setupUser() {
-        const userManager = AccountsService.UserManager.get_default();
-
-        // If AccountsService hasn't finished loading user data over DBus, wait for it
-        if (!userManager.is_loaded) {
-            this._userLoadedId = userManager.connect('notify::is-loaded', () => {
-                if (this._userLoadedId) {
-                    userManager.disconnect(this._userLoadedId);
-                    this._userLoadedId = null;
-                }
-                this._modifySystemItem();
-            });
-            return false;
-        }
-
-        return this._createAvatarWidget();
-    }
-
-    _modifySystemItem() {
-        try {
-            return this._setupUser();
-        } catch (e) {
-            console.error(`${this.metadata.name}: Error setting up avatar: ${e}`);
-            this._modificationFailed = true;
-            return false;
-        }
-    }
-
-    _queueModifySystemItem() {
-        this._idleId = GLib.idle_add(GLib.PRIORITY_DEFAULT, () => {
-            if (this._modifySystemItem() || this._modificationFailed) {
-                this._idleId = null;
-                return GLib.SOURCE_REMOVE;
-            }
-            return GLib.SOURCE_CONTINUE;
-        });
-    }
-
     enable() {
         this._avatar = null;
-        this._idleId = null;
-        this._userLoadedId = null;
+        this._idleId = 0;
         this._modificationFailed = false;
+
+        Main.panel.statusArea.quickSettings.connectObject(
+            'destroy',
+            () => this._removeAvatar(),
+            this
+        );
 
         if (!this._modifySystemItem())
             this._queueModifySystemItem();
     }
 
     disable() {
-        // 1. Remove main loop idle sources using GLib.Source.remove
+        Main.panel.statusArea.quickSettings?.disconnectObject(this);
+
         if (this._idleId) {
-            GLib.Source.remove(this._idleId);
-            this._idleId = null;
+            GLib.source_remove(this._idleId);
+            this._idleId = 0;
         }
 
-        // 2. Disconnect any pending DBus signal handlers
-        if (this._userLoadedId) {
-            const userManager = AccountsService.UserManager.get_default();
-            userManager.disconnect(this._userLoadedId);
-            this._userLoadedId = null;
-        }
+        this._removeAvatar();
+    }
 
-        // 3. Destroy created UI widgets
+    _removeAvatar() {
         if (this._avatar) {
             this._avatar.destroy();
             this._avatar = null;
         }
+    }
+
+    _modifySystemItem() {
+        if (this._avatar)
+            return true;
+
+        try {
+            const quickSettings = Main.panel.statusArea.quickSettings;
+            const menuBox = quickSettings?.menu?.box;
+
+            if (!menuBox)
+                return false;
+
+            const userManager = AccountsService.UserManager.get_default();
+            const user = userManager.get_user(GLib.get_user_name());
+
+            this._avatar = new UserWidget.UserWidget(user);
+
+            menuBox.insert_child_at_index(this._avatar, 0);
+
+            for (const child of this._avatar.get_children()) {
+                if (!(child instanceof GObject.Object))
+                    continue;
+
+                if (!child.has_style_class_name?.('user-icon'))
+                    child.add_style_class_name?.('user-widget-label');
+            }
+
+            return true;
+        } catch (e) {
+            logError(
+                e,
+                `${this.metadata.name}: failed to add avatar to quick settings`
+            );
+
+            this._modificationFailed = true;
+            return false;
+        }
+    }
+
+    _queueModifySystemItem() {
+        if (this._idleId)
+            return;
+
+        this._idleId = GLib.idle_add(GLib.PRIORITY_DEFAULT, () => {
+            const done =
+                this._modifySystemItem() || this._modificationFailed;
+
+            if (done)
+                this._idleId = 0;
+
+            return done ? GLib.SOURCE_REMOVE : GLib.SOURCE_CONTINUE;
+        });
     }
 }
