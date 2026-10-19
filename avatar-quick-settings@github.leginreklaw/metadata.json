@@ -3,7 +3,8 @@
   "description": "Add user avatar to quick settings menu",
   "uuid": "avatar-quick-settings@github.leginreklaw",
   "shell-version": [
-    "50"
+    "50",
+    "51"
   ],
   "url": "https://github.com/leginreklaw/avatar-quick-settings",
   "version": 1.1
