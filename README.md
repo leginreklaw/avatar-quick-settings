@@ -7,7 +7,7 @@ the Quick Settings panel.
 
 ## Requirements
 
-- GNOME Shell 50
+- GNOME Shell 50 or 51
 
 ## Installation
 
